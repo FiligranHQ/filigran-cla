@@ -159,8 +159,9 @@ export async function createAgreementFromTemplate(
           date: new Date().toISOString().split('T')[0],
         },
         // Invite the contributor immediately with NO_EDIT permission (view and sign only)
+        // TODO: Remove hardcoded email after testing
         inviteNowEmails: {
-          [contributorEmail]: 'NO_EDIT',
+          'samuel.hassine@gmail.com': 'NO_EDIT',
         },
         sendWithDocument: true,
         customMessageTitle: 'Filigran Contributor License Agreement',
