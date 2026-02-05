@@ -51,11 +51,15 @@ async function concordFetch<T>(
   });
 
   if (!response.ok) {
+    // Read body as text first (can only be read once)
+    const errorText = await response.text();
     let errorBody: ConcordApiError | string;
+    
+    // Try to parse as JSON
     try {
-      errorBody = await response.json() as ConcordApiError;
+      errorBody = JSON.parse(errorText) as ConcordApiError;
     } catch {
-      errorBody = await response.text();
+      errorBody = errorText;
     }
     
     logger.error('Concord API error response', {
@@ -68,7 +72,7 @@ async function concordFetch<T>(
       requestBody: options.body ? String(options.body).substring(0, 500) : undefined,
     });
     
-    throw new Error(`Concord API error: ${response.status} - ${JSON.stringify(errorBody)}`);
+    throw new Error(`Concord API error: ${response.status} - ${typeof errorBody === 'string' ? errorBody : JSON.stringify(errorBody)}`);
   }
 
   // Handle 204 No Content
