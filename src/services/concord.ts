@@ -31,7 +31,7 @@ async function concordFetch<T>(
   if (!response.ok) {
     let errorBody: ConcordApiError | string;
     try {
-      errorBody = await response.json();
+      errorBody = await response.json() as ConcordApiError;
     } catch {
       errorBody = await response.text();
     }
@@ -50,7 +50,7 @@ async function concordFetch<T>(
     return {} as T;
   }
 
-  return response.json();
+  return await response.json() as T;
 }
 
 /**

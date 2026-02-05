@@ -135,14 +135,14 @@ export function findPRRecordsByAgreementUid(agreementUid: string): PRRecord[] {
   const stmt = db.prepare(`
     SELECT * FROM pr_records WHERE concord_agreement_uid = ?
   `);
-  return stmt.all(agreementUid) as PRRecord[];
+  return stmt.all(agreementUid) as unknown as PRRecord[];
 }
 
 export function findPRRecordsByGitHubUserId(githubUserId: number): PRRecord[] {
   const stmt = db.prepare(`
     SELECT * FROM pr_records WHERE github_user_id = ?
   `);
-  return stmt.all(githubUserId) as PRRecord[];
+  return stmt.all(githubUserId) as unknown as PRRecord[];
 }
 
 export function createPRRecord(record: Omit<PRRecord, 'id' | 'created_at' | 'updated_at'>): PRRecord {
