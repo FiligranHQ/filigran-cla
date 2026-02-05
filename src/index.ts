@@ -4,6 +4,7 @@ import { initDatabase, closeDatabase } from './services/database';
 import { logger } from './utils/logger';
 import githubRoutes from './routes/github';
 import concordRoutes from './routes/concord';
+import { listAutomatedTemplates } from './services/concord';
 
 const app = express();
 
@@ -104,6 +105,29 @@ async function start() {
 
     // Initialize database
     initDatabase();
+
+    // List available automated templates for debugging
+    logger.info('Checking Concord automated templates...', {
+      configuredTemplateId: config.concord.templateId,
+      organizationId: config.concord.organizationId,
+    });
+    const templates = await listAutomatedTemplates();
+    if (templates.length === 0) {
+      logger.warn('No automated templates found! Make sure your template is set as "Automated" in Concord.');
+    } else {
+      const configuredTemplate = templates.find(t => t.uid === config.concord.templateId);
+      if (configuredTemplate) {
+        logger.info('Configured template found', { 
+          uid: configuredTemplate.uid, 
+          title: configuredTemplate.title,
+        });
+      } else {
+        logger.warn('Configured template NOT found in available templates', {
+          configuredId: config.concord.templateId,
+          availableIds: templates.map(t => t.uid),
+        });
+      }
+    }
 
     // Start listening
     app.listen(config.port, () => {

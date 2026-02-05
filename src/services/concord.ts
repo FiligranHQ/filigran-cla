@@ -90,6 +90,29 @@ async function concordFetch<T>(
 }
 
 /**
+ * List all automated templates available in the organization
+ * Useful for debugging to verify template IDs
+ */
+export async function listAutomatedTemplates(): Promise<Array<{ uid: string; title: string }>> {
+  try {
+    // Endpoint: GET /organizations/{organizationId}/auto
+    const response = await concordFetch<
+      Array<{ uid: string; title: string }>
+    >(`/organizations/${ORG_ID}/auto`);
+    
+    logger.info('Available automated templates', {
+      count: response?.length || 0,
+      templates: response?.map(t => ({ uid: t.uid, title: t.title })) || [],
+    });
+    
+    return response || [];
+  } catch (error) {
+    logger.error('Failed to list automated templates', { error: serializeError(error) });
+    return [];
+  }
+}
+
+/**
  * Create a new agreement from the CLA template and invite the contributor to sign
  * 
  * IMPORTANT: The template must be an "Automated Template" in Concord.
@@ -115,18 +138,42 @@ export async function createAgreementFromTemplate(
     apiBase: API_BASE,
   });
 
-  // Step 1: Use the automated template to create a new agreement
-  // Endpoint: POST /organizations/{organizationId}/automated-templates/{templateId}
+  // Step 1: Use the automated template to create a new agreement AND invite signer
+  // Endpoint: POST /organizations/{organizationId}/auto/{templateId}
   // 
-  // NOTE: This ONLY works with Automated Templates (TEMPLATE_AUTO), not regular templates.
-  // If you get a 404 error, make sure your template is converted to an Automated Template in Concord.
+  // This creates the agreement, invites the contributor, and can send the signing request
   const createResponse = await concordFetch<{ uid: string; status: string }>(
-    `/organizations/${ORG_ID}/automated-templates/${templateId}`,
+    `/organizations/${ORG_ID}/auto/${templateId}`,
     {
       method: 'POST',
       body: JSON.stringify({
-        // Minimal request body - Concord will create the agreement from the template
-        // Add any smartfield values if your template has them configured
+        title: `Filigran CLA - ${githubUsername}`,
+        description: `Contributor License Agreement for GitHub user @${githubUsername} (${repoName}#${prNumber})`,
+        tags: ['CLA', 'GitHub'],
+        signatureRequired: 1,
+        // Variables to fill in the template (if configured in your template)
+        variables: {
+          contributor_name: contributorName || githubUsername,
+          contributor_email: contributorEmail,
+          github_username: githubUsername,
+          date: new Date().toISOString().split('T')[0],
+        },
+        // Invite the contributor immediately with NO_EDIT permission (view and sign only)
+        inviteNowEmails: {
+          [contributorEmail]: 'NO_EDIT',
+        },
+        sendWithDocument: true,
+        customMessageTitle: 'Filigran Contributor License Agreement',
+        customMessageContent: `Hello ${contributorName || githubUsername},
+
+Thank you for your contribution to Filigran's open source projects!
+
+Before we can merge your pull request, we need you to sign the Contributor License Agreement (CLA). This is a one-time process that covers all future contributions.
+
+Please review and sign the CLA using the link below.
+
+Best regards,
+The Filigran Team`,
       }),
     }
   );
@@ -137,24 +184,7 @@ export async function createAgreementFromTemplate(
     status: createResponse.status,
   });
 
-  // Step 2: Update the agreement metadata with contributor info
-  await concordFetch(
-    `/organizations/${ORG_ID}/agreements/${agreementUid}/metadata`,
-    {
-      method: 'PATCH',
-      body: JSON.stringify({
-        title: `Filigran CLA - ${githubUsername}`,
-        description: `Contributor License Agreement for GitHub user @${githubUsername} (${repoName}#${prNumber})`,
-        tags: ['CLA', 'GitHub', githubUsername],
-      }),
-    }
-  );
-  logger.info('Agreement metadata updated', { agreementUid });
-
-  // Step 3: Invite the contributor to sign
-  await inviteMemberToSign(agreementUid, contributorEmail, contributorName, githubUsername);
-
-  // Step 4: Move the agreement to signing status
+  // Step 2: Move the agreement to signing status and request signature
   await moveToSigning(agreementUid, contributorEmail);
 
   // Generate the signing URL
