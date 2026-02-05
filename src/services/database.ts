@@ -1,11 +1,11 @@
-import Database from 'better-sqlite3';
+import { DatabaseSync, StatementSync } from 'node:sqlite';
 import path from 'path';
 import fs from 'fs';
 import { config } from '../config';
 import { CLARecord, CLAStatus, PRRecord } from '../types';
 import { logger } from '../utils/logger';
 
-let db: Database.Database;
+let db: DatabaseSync;
 
 export function initDatabase(): void {
   // Ensure data directory exists
@@ -14,8 +14,8 @@ export function initDatabase(): void {
     fs.mkdirSync(dataDir, { recursive: true });
   }
 
-  db = new Database(config.database.path);
-  db.pragma('journal_mode = WAL');
+  db = new DatabaseSync(config.database.path);
+  db.exec('PRAGMA journal_mode = WAL');
 
   // Create tables
   db.exec(`
@@ -54,7 +54,7 @@ export function initDatabase(): void {
   logger.info('Database initialized', { path: config.database.path });
 }
 
-export function getDatabase(): Database.Database {
+export function getDatabase(): DatabaseSync {
   if (!db) {
     throw new Error('Database not initialized. Call initDatabase() first.');
   }
