@@ -184,8 +184,21 @@ The Filigran Team`,
     status: createResponse.status,
   });
 
-  // Step 2: Move the agreement to signing status and request signature
-  await moveToSigning(agreementUid, contributorEmail);
+  // The automated template with inviteNowEmails and sendWithDocument already:
+  // - Created the agreement
+  // - Invited the contributor
+  // - Sent them the document
+  // 
+  // We may need to request signature separately if the template isn't configured for it.
+  // Try requesting signature, but don't fail if it doesn't work.
+  try {
+    await requestSignature(agreementUid, contributorEmail);
+  } catch (error) {
+    logger.warn('Could not request signature (may already be configured)', { 
+      agreementUid, 
+      error: serializeError(error),
+    });
+  }
 
   // Generate the signing URL
   const signingUrl = `https://app.concordnow.com/agreements/${agreementUid}`;
@@ -239,35 +252,17 @@ The Filigran Team`,
 }
 
 /**
- * Move the agreement to signing phase and request signature
+ * Request signature on an agreement
  */
-async function moveToSigning(agreementUid: string, signerEmail: string): Promise<void> {
-  logger.info('Moving agreement to signing', { agreementUid });
+async function requestSignature(agreementUid: string, signerEmail: string): Promise<void> {
+  logger.info('Requesting signature', { agreementUid, signerEmail });
 
-  // Configure signature slots
-  await concordFetch(
-    `/organizations/${ORG_ID}/agreements/${agreementUid}/signature/slots`,
-    {
-      method: 'PUT',
-      body: JSON.stringify({
-        items: [
-          {
-            label: 'Contributor',
-            email: signerEmail,
-            required: true,
-          },
-        ],
-      }),
-    }
-  );
-
-  // Request signature - this sends the document to DocuSign/embedded signing
+  // Request signature - this sends the signature request to the signer
   await concordFetch(
     `/organizations/${ORG_ID}/agreements/${agreementUid}/signature/request`,
     {
       method: 'POST',
       body: JSON.stringify({
-        provider: 'DOCUSIGN',
         message: {
           subject: 'Please sign the Filigran Contributor License Agreement',
           content: 'Please sign this CLA to complete your contribution to Filigran open source projects.',
