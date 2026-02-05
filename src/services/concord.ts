@@ -1,5 +1,5 @@
 import { config } from '../config';
-import { logger } from '../utils/logger';
+import { logger, serializeError } from '../utils/logger';
 import { ConcordAgreement, CreateAgreementResult } from '../types';
 
 const API_BASE = config.concord.apiUrl;
@@ -23,9 +23,31 @@ async function concordFetch<T>(
     ...((options.headers as Record<string, string>) || {}),
   };
 
-  const response = await fetch(url, {
-    ...options,
-    headers,
+  logger.debug('Concord API request', {
+    method: options.method || 'GET',
+    url,
+    hasBody: !!options.body,
+  });
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      headers,
+    });
+  } catch (fetchError) {
+    logger.error('Concord API fetch failed (network error)', {
+      url,
+      method: options.method || 'GET',
+      error: serializeError(fetchError),
+    });
+    throw fetchError;
+  }
+
+  logger.debug('Concord API response', {
+    status: response.status,
+    statusText: response.statusText,
+    url,
   });
 
   if (!response.ok) {
@@ -36,10 +58,14 @@ async function concordFetch<T>(
       errorBody = await response.text();
     }
     
-    logger.error('Concord API error', {
+    logger.error('Concord API error response', {
       status: response.status,
+      statusText: response.statusText,
       endpoint,
-      error: errorBody,
+      url,
+      method: options.method || 'GET',
+      errorBody: typeof errorBody === 'string' ? errorBody : JSON.stringify(errorBody),
+      requestBody: options.body ? String(options.body).substring(0, 500) : undefined,
     });
     
     throw new Error(`Concord API error: ${response.status} - ${JSON.stringify(errorBody)}`);
@@ -50,11 +76,21 @@ async function concordFetch<T>(
     return {} as T;
   }
 
-  return await response.json() as T;
+  const responseData = await response.json() as T;
+  logger.debug('Concord API success', {
+    url,
+    responseKeys: typeof responseData === 'object' && responseData !== null ? Object.keys(responseData) : [],
+  });
+
+  return responseData;
 }
 
 /**
  * Create a new agreement from the CLA template and invite the contributor to sign
+ * 
+ * IMPORTANT: The template must be an "Automated Template" in Concord.
+ * Regular templates cannot be used via API - convert them in Concord first.
+ * To convert: Open template -> Settings -> Enable "Automated Template"
  */
 export async function createAgreementFromTemplate(
   contributorEmail: string,
@@ -65,57 +101,59 @@ export async function createAgreementFromTemplate(
 ): Promise<CreateAgreementResult> {
   const templateId = config.concord.templateId;
   
-  logger.info('Creating agreement from template', {
+  logger.info('Creating agreement from automated template', {
     templateId,
     contributorEmail,
     githubUsername,
     repoName,
     prNumber,
+    organizationId: ORG_ID,
+    apiBase: API_BASE,
   });
 
   // Step 1: Use the automated template to create a new agreement
-  // The automated template endpoint creates an agreement from a template
+  // Endpoint: POST /organizations/{organizationId}/automated-templates/{templateId}
+  // 
+  // NOTE: This ONLY works with Automated Templates (TEMPLATE_AUTO), not regular templates.
+  // If you get a 404 error, make sure your template is converted to an Automated Template in Concord.
   const createResponse = await concordFetch<{ uid: string; status: string }>(
     `/organizations/${ORG_ID}/automated-templates/${templateId}`,
     {
       method: 'POST',
       body: JSON.stringify({
-        title: `Filigran CLA - ${githubUsername}`,
-        description: `Contributor License Agreement for GitHub user @${githubUsername} (${repoName}#${prNumber})`,
-        // Fill in smartfields if the template has them
-        fields: [
-          {
-            name: 'contributor_name',
-            value: contributorName || githubUsername,
-          },
-          {
-            name: 'contributor_email',
-            value: contributorEmail,
-          },
-          {
-            name: 'github_username',
-            value: githubUsername,
-          },
-          {
-            name: 'date',
-            value: new Date().toISOString().split('T')[0],
-          },
-        ],
+        // Minimal request body - Concord will create the agreement from the template
+        // Add any smartfield values if your template has them configured
       }),
     }
   );
 
   const agreementUid = createResponse.uid;
-  logger.info('Agreement created', { agreementUid });
+  logger.info('Agreement created from automated template', { 
+    agreementUid, 
+    status: createResponse.status,
+  });
 
-  // Step 2: Invite the contributor to sign
+  // Step 2: Update the agreement metadata with contributor info
+  await concordFetch(
+    `/organizations/${ORG_ID}/agreements/${agreementUid}/metadata`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({
+        title: `Filigran CLA - ${githubUsername}`,
+        description: `Contributor License Agreement for GitHub user @${githubUsername} (${repoName}#${prNumber})`,
+        tags: ['CLA', 'GitHub', githubUsername],
+      }),
+    }
+  );
+  logger.info('Agreement metadata updated', { agreementUid });
+
+  // Step 3: Invite the contributor to sign
   await inviteMemberToSign(agreementUid, contributorEmail, contributorName, githubUsername);
 
-  // Step 3: Move the agreement to signing status
+  // Step 4: Move the agreement to signing status
   await moveToSigning(agreementUid, contributorEmail);
 
   // Generate the signing URL
-  // Concord provides a direct link to the agreement
   const signingUrl = `https://app.concordnow.com/agreements/${agreementUid}`;
 
   return {

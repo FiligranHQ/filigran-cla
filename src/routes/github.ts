@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { config, isUserExempted } from '../config';
-import { logger } from '../utils/logger';
+import { logger, serializeError } from '../utils/logger';
 import { PullRequestWebhookPayload } from '../types';
 import * as githubService from '../services/github';
 import * as concordService from '../services/concord';
@@ -159,7 +159,13 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
       prNumber
     );
   } catch (error) {
-    logger.error('Failed to create CLA agreement', { error, username });
+    logger.error('Failed to create CLA agreement', { 
+      error: serializeError(error),
+      username,
+      userEmail,
+      repoFullName,
+      prNumber,
+    });
     
     // Still add the pending label and comment with manual instructions
     await githubService.addCLAPendingLabel(octokit, owner, repo, prNumber);
@@ -271,7 +277,11 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
     res.status(200).json({ success: true });
   } catch (error) {
-    logger.error('Error handling webhook', { event, deliveryId, error });
+    logger.error('Error handling webhook', { 
+      event, 
+      deliveryId, 
+      error: serializeError(error),
+    });
     res.status(500).json({ error: 'Internal server error' });
   }
 });

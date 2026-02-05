@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { logger } from '../utils/logger';
+import { logger, serializeError } from '../utils/logger';
 import { ConcordWebhookPayload } from '../types';
 import * as githubService from '../services/github';
 import * as db from '../services/database';
@@ -59,7 +59,7 @@ async function handleAgreementExecuted(payload: ConcordWebhookPayload): Promise<
       logger.error('Failed to update PR after signing', {
         repoFullName: prRecord.repo_full_name,
         prNumber: prRecord.pr_number,
-        error,
+        error: serializeError(error),
       });
     }
   }
@@ -95,7 +95,7 @@ async function updatePRAfterSigning(
     } catch (error) {
       logger.debug('Could not check installation repos', { 
         installationId: installation.id, 
-        error 
+        error: serializeError(error),
       });
     }
   }
@@ -118,7 +118,7 @@ async function updatePRAfterSigning(
       owner, 
       repo, 
       prNumber: prRecord.pr_number, 
-      error 
+      error: serializeError(error),
     });
     return;
   }
@@ -136,7 +136,7 @@ async function updatePRAfterSigning(
     } catch (error) {
       logger.warn('Could not update comment', { 
         commentId: prRecord.comment_id, 
-        error 
+        error: serializeError(error),
       });
     }
   }
@@ -229,7 +229,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     logger.error('Error handling Concord webhook', {
       eventId: payload.event_id,
       eventName: payload.event_name,
-      error,
+      error: serializeError(error),
     });
     res.status(500).json({ error: 'Internal server error' });
   }
