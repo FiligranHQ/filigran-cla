@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  cla-bot:
+    build: .
+    container_name: filigran-cla
+    ports:
+      - "3000:3000"
+    volumes:
+      # Persist SQLite database
+      - cla-data:/app/data
+      # Mount private key (read-only)
+      - ./private-key.pem:/app/private-key.pem:ro
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - PUBLIC_URL=${PUBLIC_URL}
+      - GITHUB_APP_ID=${GITHUB_APP_ID}
+      - GITHUB_PRIVATE_KEY_PATH=/app/private-key.pem
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
+      - CONCORD_API_KEY=${CONCORD_API_KEY}
+      - CONCORD_API_URL=${CONCORD_API_URL:-https://api.concordnow.com/api/rest/1}
+      - CONCORD_ORGANIZATION_ID=${CONCORD_ORGANIZATION_ID}
+      - CONCORD_TEMPLATE_ID=${CONCORD_TEMPLATE_ID}
+      - DATABASE_PATH=/app/data/cla.db
+      - CLA_EXEMPTED_USERS=${CLA_EXEMPTED_USERS:-}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  cla-data:
+    driver: local

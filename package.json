@@ -1,0 +1,39 @@
+{
+  "name": "filigran-cla",
+  "version": "1.0.0",
+  "description": "CLA (Contributor License Agreement) bot for Filigran open source repositories",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "lint": "eslint src/**/*.ts"
+  },
+  "keywords": [
+    "cla",
+    "github",
+    "bot",
+    "concord",
+    "contributor-license-agreement"
+  ],
+  "author": "Filigran",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@octokit/auth-app": "^6.0.3",
+    "@octokit/rest": "^20.0.2",
+    "@octokit/webhooks": "^12.0.10",
+    "better-sqlite3": "^9.4.3",
+    "dotenv": "^16.4.1",
+    "express": "^4.18.2",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.11.16",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
