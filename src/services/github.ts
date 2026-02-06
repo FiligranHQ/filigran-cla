@@ -323,13 +323,11 @@ export async function updateCommentCLASigned(
 ): Promise<void> {
   const body = `## Contributor License Agreement
 
-Hey @${username}!
+:white_check_mark: **CLA signed** :green_heart:
 
-:green_heart: **CLA has been signed**
+Thank you @${username} for signing the Contributor License Agreement! Your pull request can now be reviewed and merged.
 
-Thank you for signing the Contributor License Agreement! Your pull request can now be reviewed and merged.
-
----
+We appreciate your contribution to Filigran's open source projects! :heart:
 
 <sub>This is an automated message from the Filigran CLA Bot.</sub>`;
 

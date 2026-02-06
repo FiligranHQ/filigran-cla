@@ -162,18 +162,60 @@ async function updatePRAfterSigning(
 
 /**
  * Handle new signature event
+ * For CLAs, we only require 1 signature (the contributor), so we can treat
+ * a new signature as the CLA being signed and update the PR immediately.
  */
 async function handleNewSignature(payload: ConcordWebhookPayload): Promise<void> {
   const { agreement, user } = payload.content;
+  const agreementUid = agreement.uid;
 
   logger.info('New signature on agreement', {
-    agreementUid: agreement.uid,
+    agreementUid,
     signerEmail: user?.email,
     signerName: user?.name,
   });
 
-  // This event fires for each signature, but we only care about when it's fully executed
-  // The AGREEMENT_EXECUTED event handles the full signing
+  // Find the CLA record by agreement UID
+  const claRecord = db.findCLAByAgreementUid(agreementUid);
+
+  if (!claRecord) {
+    logger.warn('No CLA record found for agreement (new signature)', { agreementUid });
+    return;
+  }
+
+  // If already signed, skip (AGREEMENT_EXECUTED may have already handled it)
+  if (claRecord.status === 'signed') {
+    logger.info('CLA already marked as signed, skipping', { agreementUid });
+    return;
+  }
+
+  // Update CLA status to signed
+  db.updateCLAStatusByAgreementUid(agreementUid, 'signed', new Date().toISOString());
+
+  logger.info('CLA marked as signed (new signature)', {
+    githubUsername: claRecord.github_username,
+    agreementUid,
+  });
+
+  // Find all PRs associated with this user and update them
+  const prRecords = db.findPRRecordsByGitHubUserId(claRecord.github_user_id);
+
+  if (prRecords.length === 0) {
+    logger.info('No PR records found for user', { githubUsername: claRecord.github_username });
+    return;
+  }
+
+  for (const prRecord of prRecords) {
+    try {
+      await updatePRAfterSigning(prRecord, claRecord.github_username);
+    } catch (error) {
+      logger.error('Failed to update PR after new signature', {
+        repoFullName: prRecord.repo_full_name,
+        prNumber: prRecord.pr_number,
+        error: serializeError(error),
+      });
+    }
+  }
 }
 
 /**
