@@ -154,12 +154,12 @@ export async function createAgreementFromTemplate(
         // Variables to fill in the template (if configured in your template)
         variables: {
           contributor_name: contributorName || githubUsername,
-          contributor_email: 'samuel.hassine@gmail.com', // TODO: Replace with contributorEmail after testing
+          contributor_email: contributorEmail,
           github_username: githubUsername,
           date: new Date().toISOString().split('T')[0],
         },
         inviteNowEmails: {
-          'samuel.hassine@gmail.com': 'NO_EDIT', // TODO: Replace with contributorEmail after testing
+          [contributorEmail]: 'NO_EDIT',
         },
         sendWithDocument: true,
         customMessageTitle: 'Filigran Contributor License Agreement',
@@ -183,22 +183,15 @@ The Filigran Team`,
     status: createResponse.status,
   });
 
-  // The automated template with inviteNowEmails and sendWithDocument already:
-  // - Created the agreement
-  // - Invited the contributor
-  // - Sent them the document
-  // 
-  // We may need to request signature separately if the template isn't configured for it.
-  // Try requesting signature, but don't fail if it doesn't work.
-  // Signature is already requested via sendWithDocument in the auto template call
-  // try {
-  //   await requestSignature(agreementUid, contributorEmail);
-  // } catch (error) {
-  //   logger.warn('Could not request signature (may already be configured)', { 
-  //     agreementUid, 
-  //     error: serializeError(error),
-  //   });
-  // }
+  // Request signature from the contributor
+  try {
+    await requestSignature(agreementUid, contributorEmail);
+  } catch (error) {
+    logger.warn('Could not request signature (may already be configured)', { 
+      agreementUid, 
+      error: serializeError(error),
+    });
+  }
 
   return {
     agreementUid,
