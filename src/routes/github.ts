@@ -261,9 +261,8 @@ async function handleIssueCommentEvent(payload: IssueCommentWebhookPayload): Pro
 
   const body = comment.body.trim().toLowerCase();
 
-  // Check for @filigran-cla-bot resend command (match bot mention + resend)
-  const botMentionPattern = /^@filigran-cla-bot\[bot\]\s+resend|^@filigran-cla-bot\s+resend/;
-  if (!botMentionPattern.test(body)) {
+  // Check for /cla resend command
+  if (body !== '/cla resend') {
     return;
   }
 
