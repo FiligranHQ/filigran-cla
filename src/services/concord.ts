@@ -183,15 +183,7 @@ The Filigran Team`,
     status: createResponse.status,
   });
 
-  // Request signature from the contributor
-  try {
-    await requestSignature(agreementUid, contributorEmail);
-  } catch (error) {
-    logger.warn('Could not request signature (may already be configured)', { 
-      agreementUid, 
-      error: serializeError(error),
-    });
-  }
+  // Signature request is handled automatically by the Concord template configuration
 
   return {
     agreementUid,
