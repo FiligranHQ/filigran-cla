@@ -129,9 +129,6 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
     userEmail = `${userId}+${username}@users.noreply.github.com`;
   }
 
-  // TODO: Remove hardcoded email after testing
-  userEmail = 'samuel.hassine@gmail.com';
-
   logger.info('User email determined', { username, userEmail });
 
   // Check if there's an existing signed CLA in Concord (maybe signed outside this bot)
