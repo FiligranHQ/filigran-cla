@@ -282,33 +282,6 @@ The CLA helps protect both you and Filigran. It ensures that:
   return comment.id;
 }
 
-/**
- * Create a comment when the CLA is already in place (exempt user or returning contributor)
- */
-export async function createCLAPassComment(
-  octokit: Octokit,
-  owner: string,
-  repo: string,
-  prNumber: number,
-  username: string
-): Promise<void> {
-  const body = `## Contributor License Agreement
-
-:white_check_mark: **All good!** The CLA is already in place for @${username} — nothing to do here.
-
-This pull request is ready to be reviewed and merged from a CLA perspective.
-
-<sub>This is an automated message from the Filigran CLA Bot. If you have questions, please contact the maintainers.</sub>`;
-
-  await octokit.issues.createComment({
-    owner,
-    repo,
-    issue_number: prNumber,
-    body,
-  });
-
-  logger.info('Created CLA pass comment', { owner, repo, prNumber });
-}
 
 /**
  * Update comment to show CLA has been signed

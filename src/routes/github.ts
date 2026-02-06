@@ -73,14 +73,9 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
       org: owner,
     });
     
-    // Set success status and add exempt label
+    // Set success status and add exempt label — no comment needed
     await githubService.createCLAStatus(octokit, owner, repo, sha, true, undefined, 'CLA not required (organization member)');
     await githubService.addCLAExemptLabel(octokit, owner, repo, prNumber);
-
-    // Only post comment on first event (opened), not on synchronize/reopened
-    if (action === 'opened') {
-      await githubService.createCLAPassComment(octokit, owner, repo, prNumber, username);
-    }
     
     return;
   }
@@ -91,14 +86,9 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
   if (existingCLA && existingCLA.status === 'signed') {
     logger.info('User has already signed CLA', { username, userId });
     
-    // Update status to success
-    await githubService.createCLAStatus(octokit, owner, repo, sha, true);
+    // Update status to success — no comment needed
+    await githubService.createCLAStatus(octokit, owner, repo, sha, true, undefined, 'CLA already signed');
     await githubService.updateCLALabels(octokit, owner, repo, prNumber);
-
-    // Only post comment on first event (opened), not on synchronize/reopened
-    if (action === 'opened') {
-      await githubService.createCLAPassComment(octokit, owner, repo, prNumber, username);
-    }
     
     return;
   }
@@ -162,12 +152,8 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
         : new Date().toISOString(),
     });
 
-    await githubService.createCLAStatus(octokit, owner, repo, sha, true);
+    await githubService.createCLAStatus(octokit, owner, repo, sha, true, undefined, 'CLA already signed');
     await githubService.updateCLALabels(octokit, owner, repo, prNumber);
-
-    if (action === 'opened') {
-      await githubService.createCLAPassComment(octokit, owner, repo, prNumber, username);
-    }
     
     return;
   }
