@@ -68,7 +68,7 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
     // Set success status, add exempt label, and post a comment
     await githubService.createCLAStatus(octokit, owner, repo, sha, true, undefined, 'CLA not required (Filigran employee)');
     await githubService.addCLAExemptLabel(octokit, owner, repo, prNumber);
-    await githubService.createCLAExemptComment(octokit, owner, repo, prNumber, username);
+    await githubService.createCLAPassComment(octokit, owner, repo, prNumber, username);
     
     return;
   }
@@ -79,9 +79,10 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
   if (existingCLA && existingCLA.status === 'signed') {
     logger.info('User has already signed CLA', { username, userId });
     
-    // Update status to success
+    // Update status to success and post comment
     await githubService.createCLAStatus(octokit, owner, repo, sha, true);
     await githubService.updateCLALabels(octokit, owner, repo, prNumber);
+    await githubService.createCLAPassComment(octokit, owner, repo, prNumber, username);
     
     return;
   }
@@ -147,6 +148,7 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
 
     await githubService.createCLAStatus(octokit, owner, repo, sha, true);
     await githubService.updateCLALabels(octokit, owner, repo, prNumber);
+    await githubService.createCLAPassComment(octokit, owner, repo, prNumber, username);
     
     return;
   }
