@@ -61,12 +61,20 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
 
   const octokit = await githubService.getInstallationOctokit(installation.id);
 
-  // Check if user is exempted from CLA (e.g., Filigran employees)
-  if (isUserExempted(username)) {
-    logger.info('User is exempted from CLA (Filigran employee)', { username, userId });
+  // Check if user is exempted from CLA (whitelist or GitHub org member)
+  const isWhitelisted = isUserExempted(username);
+  const isOrgMember = !isWhitelisted && !config.cla.skipOrgMemberCheck && await githubService.isOrganizationMember(octokit, owner, username);
+
+  if (isWhitelisted || isOrgMember) {
+    logger.info('User is exempted from CLA', { 
+      username, 
+      userId, 
+      reason: isWhitelisted ? 'whitelist' : 'org_member',
+      org: owner,
+    });
     
     // Set success status, add exempt label, and post a comment
-    await githubService.createCLAStatus(octokit, owner, repo, sha, true, undefined, 'CLA not required (Filigran employee)');
+    await githubService.createCLAStatus(octokit, owner, repo, sha, true, undefined, 'CLA not required (organization member)');
     await githubService.addCLAExemptLabel(octokit, owner, repo, prNumber);
     await githubService.createCLAPassComment(octokit, owner, repo, prNumber, username);
     

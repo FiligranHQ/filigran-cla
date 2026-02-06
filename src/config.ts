@@ -86,6 +86,7 @@ export const config = {
     // GitHub usernames exempted from CLA (e.g., Filigran employees)
     // Can be set via env var as comma-separated list or in code
     exemptedUsers: parseExemptedUsers(),
+    skipOrgMemberCheck: process.env.CLA_SKIP_ORG_MEMBER_CHECK === 'true',
   },
 
   // CLA Labels

@@ -436,6 +436,27 @@ export async function getAppInstallations(): Promise<
 }
 
 /**
+ * Check if a user is a member of the GitHub organization
+ */
+export async function isOrganizationMember(
+  octokit: Octokit,
+  org: string,
+  username: string
+): Promise<boolean> {
+  try {
+    await octokit.orgs.checkMembershipForUser({
+      org,
+      username,
+    });
+    // If the call succeeds (204), the user is a member
+    return true;
+  } catch {
+    // 404 or 302 means not a member
+    return false;
+  }
+}
+
+/**
  * Get repositories for an installation
  */
 export async function getInstallationRepos(
