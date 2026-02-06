@@ -65,9 +65,10 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
   if (isUserExempted(username)) {
     logger.info('User is exempted from CLA (Filigran employee)', { username, userId });
     
-    // Set success status and add exempt label
+    // Set success status, add exempt label, and post a comment
     await githubService.createCLAStatus(octokit, owner, repo, sha, true, undefined, 'CLA not required (Filigran employee)');
     await githubService.addCLAExemptLabel(octokit, owner, repo, prNumber);
+    await githubService.createCLAExemptComment(octokit, owner, repo, prNumber, username);
     
     return;
   }

@@ -283,6 +283,35 @@ The CLA helps protect both you and Filigran. It ensures that:
 }
 
 /**
+ * Create a comment for exempted users (e.g., Filigran employees)
+ */
+export async function createCLAExemptComment(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  username: string
+): Promise<number> {
+  const body = `## Contributor License Agreement
+
+:white_check_mark: **CLA signature not required**
+
+@${username} is a Filigran employee and is exempt from signing the Contributor License Agreement.
+
+<sub>This is an automated message from the Filigran CLA Bot.</sub>`;
+
+  const { data: comment } = await octokit.issues.createComment({
+    owner,
+    repo,
+    issue_number: prNumber,
+    body,
+  });
+
+  logger.info('Created CLA exempt comment', { owner, repo, prNumber, commentId: comment.id });
+  return comment.id;
+}
+
+/**
  * Update comment to show CLA has been signed
  */
 export async function updateCommentCLASigned(
