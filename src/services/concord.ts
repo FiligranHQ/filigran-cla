@@ -200,12 +200,8 @@ The Filigran Team`,
   //   });
   // }
 
-  // Generate the signing URL
-  const signingUrl = `https://app.concordnow.com/agreements/${agreementUid}`;
-
   return {
     agreementUid,
-    signingUrl,
   };
 }
 

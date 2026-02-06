@@ -95,8 +95,7 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
       owner,
       repo,
       sha,
-      false,
-      `https://app.concordnow.com/agreements/${existingCLA.concord_agreement_uid}`
+      false
     );
     return;
   }
@@ -219,8 +218,7 @@ Please contact the maintainers for assistance.
     owner,
     repo,
     prNumber,
-    username,
-    agreementResult.signingUrl || `https://app.concordnow.com/agreements/${agreementResult.agreementUid}`
+    username
   );
 
   // Update PR record with comment ID
@@ -232,8 +230,7 @@ Please contact the maintainers for assistance.
     owner,
     repo,
     sha,
-    false,
-    agreementResult.signingUrl
+    false
   );
 
   logger.info('CLA request created', {

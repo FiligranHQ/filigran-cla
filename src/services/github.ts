@@ -242,14 +242,13 @@ export async function createCLAPendingComment(
   owner: string,
   repo: string,
   prNumber: number,
-  username: string,
-  signingUrl: string
+  username: string
 ): Promise<number> {
   const body = `## Contributor License Agreement
 
 Hey @${username}! 
 
-Thank you for your contribution to Filigran! Before we can merge this pull request, we need you to sign our [Contributor License Agreement (CLA)](${signingUrl}).
+Thank you for your contribution to Filigran! Before we can merge this pull request, we need you to sign our Contributor License Agreement (CLA).
 
 ### Why do we need a CLA?
 
@@ -260,11 +259,11 @@ The CLA helps protect both you and Filigran. It ensures that:
 
 ### How to sign
 
-1. Click the link below to review and sign the CLA
-2. The document will be sent to you via DocuSign
+1. **Check your email** for an invitation from Concord to sign the CLA
+2. Click the signing link in the email to review and sign the document
 3. Once signed, this comment will be automatically updated
 
-**[Sign the CLA](${signingUrl})**
+> :email: A signing invitation has been sent to your email address. If you don't see it, please check your spam folder.
 
 ---
 

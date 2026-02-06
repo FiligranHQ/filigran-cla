@@ -140,5 +140,4 @@ export interface CLACheckResult {
 
 export interface CreateAgreementResult {
   agreementUid: string;
-  signingUrl?: string;
 }

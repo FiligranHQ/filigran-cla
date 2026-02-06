@@ -1,6 +1,6 @@
 # Filigran CLA Bot
 
-A GitHub App bot that manages Contributor License Agreements (CLAs) for Filigran open source repositories using Concord and DocuSign.
+A GitHub App bot that manages Contributor License Agreements (CLAs) for Filigran open source repositories using Concord.
 
 ## Features
 
@@ -8,7 +8,7 @@ A GitHub App bot that manages Contributor License Agreements (CLAs) for Filigran
 - **Exempted users**: Configure Filigran employees to bypass CLA checks
 - Automatically checks if PR contributors have signed the Filigran CLA
 - Creates CLA agreements in Concord from a template
-- Sends agreements for electronic signature via DocuSign
+- Sends agreements for electronic signature via Concord
 - Adds labels and comments to PRs requiring CLA signature
 - Automatically updates PRs when the CLA is signed
 - Maintains a local database of CLA signatures for quick lookups
@@ -18,7 +18,7 @@ A GitHub App bot that manages Contributor License Agreements (CLAs) for Filigran
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │   GitHub PR     │────▶│  Filigran CLA   │────▶│    Concord      │
-│   Webhook       │     │     Bot         │     │   (DocuSign)    │
+│   Webhook       │     │     Bot         │     │   (e-signing)   │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
                                │                        │
                                ▼                        │
@@ -235,7 +235,7 @@ const defaultExemptedUsers: string[] = [
 4. If signed: Sets commit status to success, adds "cla:signed" label
 5. If not signed:
    - Creates a new agreement in Concord from the template
-   - Invites the contributor to sign via DocuSign
+   - Invites the contributor to sign via Concord
    - Adds "cla:pending" label to the PR
    - Creates a comment with signing instructions
    - Sets commit status to pending
