@@ -141,8 +141,8 @@ async function updatePRAfterSigning(
     }
   }
 
-  // Update labels
-  await githubService.updateCLALabels(octokit, owner, repo, prRecord.pr_number);
+  // Remove pending label
+  await githubService.removeCLAPendingLabel(octokit, owner, repo, prRecord.pr_number);
 
   // Update commit status
   await githubService.createCLAStatus(

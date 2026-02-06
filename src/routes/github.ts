@@ -73,9 +73,8 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
       org: owner,
     });
     
-    // Set success status and add exempt label — no comment needed
+    // Set success status — no comment or label needed
     await githubService.createCLAStatus(octokit, owner, repo, sha, true, undefined, 'CLA not required (organization member)');
-    await githubService.addCLAExemptLabel(octokit, owner, repo, prNumber);
     
     return;
   }
@@ -88,7 +87,6 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
     
     // Update status to success — no comment needed
     await githubService.createCLAStatus(octokit, owner, repo, sha, true, undefined, 'CLA already signed');
-    await githubService.updateCLALabels(octokit, owner, repo, prNumber);
     
     return;
   }
@@ -150,7 +148,6 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
     });
 
     await githubService.createCLAStatus(octokit, owner, repo, sha, true, undefined, 'CLA already signed');
-    await githubService.updateCLALabels(octokit, owner, repo, prNumber);
     
     return;
   }
@@ -174,7 +171,6 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
       prNumber,
     });
     
-    // Still add the pending label and comment with manual instructions
     await githubService.addCLAPendingLabel(octokit, owner, repo, prNumber);
     await githubService.createCLAStatus(octokit, owner, repo, sha, false);
     
@@ -217,10 +213,8 @@ Please contact the maintainers for assistance.
     concord_agreement_uid: agreementResult.agreementUid,
   });
 
-  // Add label
+  // Add pending label and create comment
   await githubService.addCLAPendingLabel(octokit, owner, repo, prNumber);
-
-  // Create comment
   const commentId = await githubService.createCLAPendingComment(
     octokit,
     owner,

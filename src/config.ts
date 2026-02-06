@@ -96,17 +96,6 @@ export const config = {
     description: 'CLA signature required',
   },
 
-  claSignedLabel: {
-    name: 'cla:signed',
-    color: '0e8a16',
-    description: 'CLA has been signed',
-  },
-
-  claExemptLabel: {
-    name: 'cla:exempt',
-    color: '5319e7',
-    description: 'CLA not required (Filigran employee)',
-  },
 };
 
 export function validateConfig(): void {

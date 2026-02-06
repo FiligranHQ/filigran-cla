@@ -104,49 +104,6 @@ export async function ensureCLALabel(
     }
   }
 
-  // Also ensure signed label exists
-  try {
-    await octokit.issues.getLabel({
-      owner,
-      repo,
-      name: config.claSignedLabel.name,
-    });
-  } catch {
-    try {
-      await octokit.issues.createLabel({
-        owner,
-        repo,
-        name: config.claSignedLabel.name,
-        color: config.claSignedLabel.color,
-        description: config.claSignedLabel.description,
-      });
-      logger.info('Created CLA signed label', { owner, repo });
-    } catch (createError) {
-      logger.warn('Could not create CLA signed label', { owner, repo, error: createError });
-    }
-  }
-
-  // Also ensure exempt label exists
-  try {
-    await octokit.issues.getLabel({
-      owner,
-      repo,
-      name: config.claExemptLabel.name,
-    });
-  } catch {
-    try {
-      await octokit.issues.createLabel({
-        owner,
-        repo,
-        name: config.claExemptLabel.name,
-        color: config.claExemptLabel.color,
-        description: config.claExemptLabel.description,
-      });
-      logger.info('Created CLA exempt label', { owner, repo });
-    } catch (createError) {
-      logger.warn('Could not create CLA exempt label', { owner, repo, error: createError });
-    }
-  }
 }
 
 /**
@@ -173,40 +130,16 @@ export async function addCLAPendingLabel(
   }
 }
 
+
 /**
- * Add CLA exempt label to a PR (for Filigran employees)
+ * Remove CLA pending label from a PR
  */
-export async function addCLAExemptLabel(
+export async function removeCLAPendingLabel(
   octokit: Octokit,
   owner: string,
   repo: string,
   prNumber: number
 ): Promise<void> {
-  await ensureCLALabel(octokit, owner, repo);
-
-  try {
-    await octokit.issues.addLabels({
-      owner,
-      repo,
-      issue_number: prNumber,
-      labels: [config.claExemptLabel.name],
-    });
-    logger.info('Added CLA exempt label', { owner, repo, prNumber });
-  } catch (error) {
-    logger.warn('Could not add CLA exempt label', { owner, repo, prNumber, error });
-  }
-}
-
-/**
- * Remove CLA pending label and add signed label
- */
-export async function updateCLALabels(
-  octokit: Octokit,
-  owner: string,
-  repo: string,
-  prNumber: number
-): Promise<void> {
-  // Remove pending label
   try {
     await octokit.issues.removeLabel({
       owner,
@@ -217,20 +150,6 @@ export async function updateCLALabels(
     logger.info('Removed CLA pending label', { owner, repo, prNumber });
   } catch {
     // Label might not exist, ignore
-  }
-
-  // Add signed label
-  try {
-    await ensureCLALabel(octokit, owner, repo);
-    await octokit.issues.addLabels({
-      owner,
-      repo,
-      issue_number: prNumber,
-      labels: [config.claSignedLabel.name],
-    });
-    logger.info('Added CLA signed label', { owner, repo, prNumber });
-  } catch (error) {
-    logger.warn('Could not add CLA signed label', { owner, repo, prNumber, error });
   }
 }
 
