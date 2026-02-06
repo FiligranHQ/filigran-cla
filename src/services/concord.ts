@@ -256,6 +256,19 @@ async function requestSignature(agreementUid: string, signerEmail: string): Prom
 }
 
 /**
+ * Resend the CLA invitation to a contributor
+ */
+export async function resendCLAInvitation(
+  agreementUid: string,
+  email: string,
+  name: string,
+  githubUsername: string
+): Promise<void> {
+  logger.info('Resending CLA invitation', { agreementUid, email, githubUsername });
+  await inviteMemberToSign(agreementUid, email, name, githubUsername);
+}
+
+/**
  * Get agreement details
  */
 export async function getAgreement(agreementUid: string): Promise<ConcordAgreement> {

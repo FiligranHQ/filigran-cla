@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { config, isUserExempted } from '../config';
 import { logger, serializeError } from '../utils/logger';
-import { PullRequestWebhookPayload } from '../types';
+import { PullRequestWebhookPayload, IssueCommentWebhookPayload } from '../types';
 import * as githubService from '../services/github';
 import * as concordService from '../services/concord';
 import * as db from '../services/database';
@@ -249,6 +249,163 @@ Please contact the maintainers for assistance.
 }
 
 /**
+ * Handle issue comment events (for bot commands like @filigran-cla-bot resend)
+ */
+async function handleIssueCommentEvent(payload: IssueCommentWebhookPayload): Promise<void> {
+  const { action, comment, issue, repository, installation } = payload;
+
+  // Only handle new comments on pull requests
+  if (action !== 'created' || !issue.pull_request) {
+    return;
+  }
+
+  const body = comment.body.trim().toLowerCase();
+
+  // Check for @filigran-cla-bot resend command (match bot mention + resend)
+  const botMentionPattern = /^@filigran-cla-bot\[bot\]\s+resend|^@filigran-cla-bot\s+resend/;
+  if (!botMentionPattern.test(body)) {
+    return;
+  }
+
+  if (!installation?.id) {
+    logger.error('No installation ID in webhook payload');
+    return;
+  }
+
+  const owner = repository.owner.login;
+  const repo = repository.name;
+  const repoFullName = repository.full_name;
+  const prNumber = issue.number;
+  const prAuthor = issue.user;
+
+  logger.info('CLA resend requested', {
+    requestedBy: comment.user.login,
+    prAuthor: prAuthor.login,
+    prNumber,
+    repoFullName,
+  });
+
+  const octokit = await githubService.getInstallationOctokit(installation.id);
+
+  // Get user email for the PR author
+  let userEmail: string | null = null;
+  const commitEmails = await githubService.getPRCommitEmails(octokit, owner, repo, prNumber);
+  if (commitEmails.length > 0) {
+    const realEmails = commitEmails.filter((e) => !e.includes('noreply.github.com'));
+    userEmail = realEmails[0] || commitEmails[0];
+  }
+  if (!userEmail) {
+    userEmail = await githubService.getUserEmail(octokit, prAuthor.login);
+  }
+  if (!userEmail) {
+    userEmail = `${prAuthor.id}+${prAuthor.login}@users.noreply.github.com`;
+  }
+
+  // Check if there's an existing CLA record
+  const claRecord = db.findCLAByGitHubUserId(prAuthor.id);
+
+  // If there's an existing pending record, check if the agreement still exists in Concord
+  let needsNewAgreement = !claRecord;
+
+  if (claRecord && claRecord.status === 'pending') {
+    try {
+      await concordService.getAgreement(claRecord.concord_agreement_uid);
+      // Agreement still exists — just resend the invitation
+      logger.info('Agreement still exists in Concord, resending invitation', {
+        agreementUid: claRecord.concord_agreement_uid,
+      });
+
+      await concordService.resendCLAInvitation(
+        claRecord.concord_agreement_uid,
+        userEmail,
+        prAuthor.name || prAuthor.login,
+        prAuthor.login
+      );
+
+      await octokit.issues.createComment({
+        owner,
+        repo,
+        issue_number: prNumber,
+        body: `:email: CLA signing invitation has been resent to **@${prAuthor.login}**. Please check your email (including spam folder).`,
+      });
+      return;
+    } catch {
+      // Agreement doesn't exist anymore in Concord — clean up and recreate
+      logger.info('Agreement no longer exists in Concord, will recreate', {
+        agreementUid: claRecord.concord_agreement_uid,
+      });
+      needsNewAgreement = true;
+    }
+  } else if (claRecord && claRecord.status === 'signed') {
+    await octokit.issues.createComment({
+      owner,
+      repo,
+      issue_number: prNumber,
+      body: `:white_check_mark: @${prAuthor.login} has already signed the CLA — no resend needed.`,
+    });
+    return;
+  }
+
+  if (needsNewAgreement) {
+    // Clean up old records if any
+    if (claRecord) {
+      db.deleteCLAByGitHubUserId(prAuthor.id);
+    }
+
+    // Create a fresh agreement
+    try {
+      const agreementResult = await concordService.createAgreementFromTemplate(
+        userEmail,
+        prAuthor.name || prAuthor.login,
+        prAuthor.login,
+        repoFullName,
+        prNumber
+      );
+
+      // Save new CLA record
+      db.createCLARecord({
+        github_username: prAuthor.login,
+        github_user_id: prAuthor.id,
+        github_email: userEmail,
+        concord_agreement_uid: agreementResult.agreementUid,
+        status: 'pending',
+      });
+
+      // Update PR record with new agreement UID
+      db.updatePRRecordAgreementUid(repoFullName, prNumber, prAuthor.id, agreementResult.agreementUid);
+
+      // Get PR details for the commit status
+      const pr = await githubService.getPullRequest(octokit, owner, repo, prNumber);
+      await githubService.createCLAStatus(octokit, owner, repo, pr.head.sha, false);
+
+      await octokit.issues.createComment({
+        owner,
+        repo,
+        issue_number: prNumber,
+        body: `:arrows_counterclockwise: A new CLA agreement has been created and sent to **@${prAuthor.login}**. Please check your email (including spam folder) for the signing invitation.`,
+      });
+
+      logger.info('New CLA agreement created via resend command', {
+        prAuthor: prAuthor.login,
+        agreementUid: agreementResult.agreementUid,
+      });
+    } catch (error) {
+      logger.error('Failed to create new CLA agreement via resend', {
+        error: serializeError(error),
+        prAuthor: prAuthor.login,
+      });
+
+      await octokit.issues.createComment({
+        owner,
+        repo,
+        issue_number: prNumber,
+        body: `@${comment.user.login} Failed to create a new CLA agreement. Please contact the maintainers for assistance.`,
+      });
+    }
+  }
+}
+
+/**
  * GitHub webhook endpoint
  */
 router.post('/webhook', async (req: Request, res: Response) => {
@@ -270,6 +427,10 @@ router.post('/webhook', async (req: Request, res: Response) => {
     switch (event) {
       case 'pull_request':
         await handlePullRequestEvent(req.body as PullRequestWebhookPayload);
+        break;
+
+      case 'issue_comment':
+        await handleIssueCommentEvent(req.body as IssueCommentWebhookPayload);
         break;
 
       case 'ping':

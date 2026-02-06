@@ -122,6 +122,13 @@ export function updateCLAStatusByAgreementUid(agreementUid: string, status: CLAS
   stmt.run(status, signedAt || null, agreementUid);
 }
 
+export function deleteCLAByGitHubUserId(githubUserId: number): void {
+  const stmt = db.prepare(`
+    DELETE FROM cla_records WHERE github_user_id = ?
+  `);
+  stmt.run(githubUserId);
+}
+
 // PR Record Operations
 export function findPRRecord(repoFullName: string, prNumber: number, githubUserId: number): PRRecord | undefined {
   const stmt = db.prepare(`

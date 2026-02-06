@@ -45,6 +45,34 @@ export interface PullRequestWebhookPayload {
   };
 }
 
+export interface IssueCommentWebhookPayload {
+  action: string;
+  comment: {
+    id: number;
+    body: string;
+    user: GitHubUser;
+  };
+  issue: {
+    number: number;
+    pull_request?: {
+      url: string;
+    };
+    user: GitHubUser;
+  };
+  repository: {
+    id: number;
+    name: string;
+    full_name: string;
+    owner: {
+      login: string;
+    };
+  };
+  sender: GitHubUser;
+  installation?: {
+    id: number;
+  };
+}
+
 // Concord Types
 export interface ConcordAgreement {
   uid: string;
