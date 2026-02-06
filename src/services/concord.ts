@@ -154,14 +154,12 @@ export async function createAgreementFromTemplate(
         // Variables to fill in the template (if configured in your template)
         variables: {
           contributor_name: contributorName || githubUsername,
-          contributor_email: contributorEmail,
+          contributor_email: 'samuel.hassine@gmail.com', // TODO: Replace with contributorEmail after testing
           github_username: githubUsername,
           date: new Date().toISOString().split('T')[0],
         },
-        // Invite the contributor immediately with NO_EDIT permission (view and sign only)
-        // TODO: Remove hardcoded email after testing
         inviteNowEmails: {
-          'samuel.hassine@gmail.com': 'NO_EDIT',
+          'samuel.hassine@gmail.com': 'NO_EDIT', // TODO: Replace with contributorEmail after testing
         },
         sendWithDocument: true,
         customMessageTitle: 'Filigran Contributor License Agreement',
