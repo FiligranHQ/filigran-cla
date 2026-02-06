@@ -190,14 +190,15 @@ The Filigran Team`,
   // 
   // We may need to request signature separately if the template isn't configured for it.
   // Try requesting signature, but don't fail if it doesn't work.
-  try {
-    await requestSignature(agreementUid, contributorEmail);
-  } catch (error) {
-    logger.warn('Could not request signature (may already be configured)', { 
-      agreementUid, 
-      error: serializeError(error),
-    });
-  }
+  // Signature is already requested via sendWithDocument in the auto template call
+  // try {
+  //   await requestSignature(agreementUid, contributorEmail);
+  // } catch (error) {
+  //   logger.warn('Could not request signature (may already be configured)', { 
+  //     agreementUid, 
+  //     error: serializeError(error),
+  //   });
+  // }
 
   // Generate the signing URL
   const signingUrl = `https://app.concordnow.com/agreements/${agreementUid}`;
