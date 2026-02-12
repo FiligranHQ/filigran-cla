@@ -301,33 +301,47 @@ async function handleIssueCommentEvent(payload: IssueCommentWebhookPayload): Pro
   let needsNewAgreement = !claRecord;
 
   if (claRecord && claRecord.status === 'pending') {
-    try {
-      await concordService.getAgreement(claRecord.concord_agreement_uid);
-      // Agreement still exists — just resend the invitation
-      logger.info('Agreement still exists in Concord, resending invitation', {
-        agreementUid: claRecord.concord_agreement_uid,
-      });
+    // If the stored email differs from the newly resolved email (e.g. was sent to a
+    // noreply address), the existing Concord agreement has the wrong signer — we must
+    // purge it and create a fresh one with the correct email.
+    const emailChanged = claRecord.github_email !== userEmail;
 
-      await concordService.resendCLAInvitation(
-        claRecord.concord_agreement_uid,
-        userEmail,
-        prAuthor.name || prAuthor.login,
-        prAuthor.login
-      );
-
-      await octokit.issues.createComment({
-        owner,
-        repo,
-        issue_number: prNumber,
-        body: `:email: CLA signing invitation has been resent to **@${prAuthor.login}**. Please check your email (including spam folder).`,
-      });
-      return;
-    } catch {
-      // Agreement doesn't exist anymore in Concord — clean up and recreate
-      logger.info('Agreement no longer exists in Concord, will recreate', {
+    if (emailChanged) {
+      logger.info('Email changed since original agreement, will recreate', {
+        oldEmail: claRecord.github_email,
+        newEmail: userEmail,
         agreementUid: claRecord.concord_agreement_uid,
       });
       needsNewAgreement = true;
+    } else {
+      try {
+        await concordService.getAgreement(claRecord.concord_agreement_uid);
+        // Agreement still exists with correct email — just resend the invitation
+        logger.info('Agreement still exists in Concord, resending invitation', {
+          agreementUid: claRecord.concord_agreement_uid,
+        });
+
+        await concordService.resendCLAInvitation(
+          claRecord.concord_agreement_uid,
+          userEmail,
+          prAuthor.name || prAuthor.login,
+          prAuthor.login
+        );
+
+        await octokit.issues.createComment({
+          owner,
+          repo,
+          issue_number: prNumber,
+          body: `:email: CLA signing invitation has been resent to **@${prAuthor.login}**. Please check your email (including spam folder).`,
+        });
+        return;
+      } catch {
+        // Agreement doesn't exist anymore in Concord — clean up and recreate
+        logger.info('Agreement no longer exists in Concord, will recreate', {
+          agreementUid: claRecord.concord_agreement_uid,
+        });
+        needsNewAgreement = true;
+      }
     }
   } else if (claRecord && claRecord.status === 'signed') {
     await octokit.issues.createComment({
