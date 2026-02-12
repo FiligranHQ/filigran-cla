@@ -106,16 +106,16 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
     return;
   }
 
-  // Get user email - try from commits first, then from profile
+  // Get user email - try real commit emails first, then profile, then noreply fallback
   let userEmail: string | null = null;
   
   const commitEmails = await githubService.getPRCommitEmails(octokit, owner, repo, prNumber);
   if (commitEmails.length > 0) {
-    // Filter out noreply emails
+    // Only use commit emails that are real (not noreply)
     const realEmails = commitEmails.filter(
       (e) => !e.includes('noreply.github.com')
     );
-    userEmail = realEmails[0] || commitEmails[0];
+    userEmail = realEmails[0] || null;
   }
 
   if (!userEmail) {
@@ -123,7 +123,7 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
   }
 
   if (!userEmail) {
-    // Use noreply GitHub email as fallback
+    // Use noreply GitHub email as last resort
     userEmail = `${userId}+${username}@users.noreply.github.com`;
   }
 
@@ -280,12 +280,12 @@ async function handleIssueCommentEvent(payload: IssueCommentWebhookPayload): Pro
 
   const octokit = await githubService.getInstallationOctokit(installation.id);
 
-  // Get user email for the PR author
+  // Get user email for the PR author - try real commit emails first, then profile, then noreply fallback
   let userEmail: string | null = null;
   const commitEmails = await githubService.getPRCommitEmails(octokit, owner, repo, prNumber);
   if (commitEmails.length > 0) {
     const realEmails = commitEmails.filter((e) => !e.includes('noreply.github.com'));
-    userEmail = realEmails[0] || commitEmails[0];
+    userEmail = realEmails[0] || null;
   }
   if (!userEmail) {
     userEmail = await githubService.getUserEmail(octokit, prAuthor.login);
