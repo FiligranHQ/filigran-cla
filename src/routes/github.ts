@@ -115,18 +115,49 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
     return;
   }
 
-  // Check if we already have a pending PR record for this user
-  let prRecord = db.findPRRecord(repoFullName, prNumber, userId);
+  // If the user already has a pending CLA, reuse it for this PR instead of
+  // creating a duplicate agreement in Concord.
+  if (existingCLA && existingCLA.status === 'pending') {
+    let prRecord = db.findPRRecord(repoFullName, prNumber, userId);
 
-  if (prRecord && existingCLA && existingCLA.status === 'pending') {
-    // Already created an agreement, just update status
-    await githubService.createCLAStatus(
-      octokit,
-      owner,
-      repo,
-      sha,
-      false
+    if (prRecord) {
+      // PR record already exists, just refresh the commit status
+      await githubService.createCLAStatus(octokit, owner, repo, sha, false);
+      return;
+    }
+
+    // New PR for the same user — register it and post the CLA comment
+    // so the contributor has the signing link on every PR.
+    let signingUrl: string | undefined;
+    try {
+      signingUrl = await concordService.createSharedLink(existingCLA.concord_agreement_uid);
+    } catch (error) {
+      logger.warn('Could not create shared signing link for additional PR', {
+        error: serializeError(error),
+        agreementUid: existingCLA.concord_agreement_uid,
+      });
+    }
+
+    prRecord = db.createPRRecord({
+      repo_full_name: repoFullName,
+      pr_number: prNumber,
+      github_username: username,
+      github_user_id: userId,
+      concord_agreement_uid: existingCLA.concord_agreement_uid,
+    });
+
+    await githubService.addCLAPendingLabel(octokit, owner, repo, prNumber);
+    const commentId = await githubService.createCLAPendingComment(
+      octokit, owner, repo, prNumber, username, signingUrl
     );
+    db.updatePRRecordCommentId(repoFullName, prNumber, userId, commentId);
+    await githubService.createCLAStatus(octokit, owner, repo, sha, false);
+
+    logger.info('Linked additional PR to existing pending CLA', {
+      username,
+      prNumber,
+      agreementUid: existingCLA.concord_agreement_uid,
+    });
     return;
   }
 
@@ -160,8 +191,6 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
       userEmail,
       pr.user.name || username,
       username,
-      repoFullName,
-      prNumber
     );
   } catch (error) {
     logger.error('Failed to create CLA agreement', { 
@@ -217,7 +246,7 @@ Please contact the maintainers for assistance.
   });
 
   // Save PR record
-  prRecord = db.createPRRecord({
+  db.createPRRecord({
     repo_full_name: repoFullName,
     pr_number: prNumber,
     github_username: username,
@@ -256,7 +285,7 @@ Please contact the maintainers for assistance.
 }
 
 /**
- * Handle issue comment events (for bot commands like @filigran-cla-bot resend)
+ * Handle issue comment events (for bot commands)
  */
 async function handleIssueCommentEvent(payload: IssueCommentWebhookPayload): Promise<void> {
   const { action, comment, issue, repository, installation } = payload;
@@ -268,10 +297,141 @@ async function handleIssueCommentEvent(payload: IssueCommentWebhookPayload): Pro
 
   const body = comment.body.trim().toLowerCase();
 
-  // Check for /cla resend command
-  if (body !== '/cla resend') {
+  if (body === '/cla recheck') {
+    await handleCLARecheck(payload);
+  } else if (body === '/cla resend') {
+    await handleCLAResend(payload);
+  }
+}
+
+/**
+ * /cla recheck — Re-evaluate the CLA status for the PR author.
+ * Checks exemption list, local DB, and Concord. If the CLA is satisfied,
+ * updates the commit status, removes the pending label, and updates the comment.
+ */
+async function handleCLARecheck(payload: IssueCommentWebhookPayload): Promise<void> {
+  const { comment, issue, repository, installation } = payload;
+
+  if (!installation?.id) {
+    logger.error('No installation ID in webhook payload');
     return;
   }
+
+  const owner = repository.owner.login;
+  const repo = repository.name;
+  const repoFullName = repository.full_name;
+  const prNumber = issue.number;
+  const prAuthor = issue.user;
+
+  logger.info('CLA recheck requested', {
+    requestedBy: comment.user.login,
+    prAuthor: prAuthor.login,
+    prNumber,
+    repoFullName,
+  });
+
+  const octokit = await githubService.getInstallationOctokit(installation.id);
+  const pr = await githubService.getPullRequest(octokit, owner, repo, prNumber);
+  const sha = pr.head.sha;
+  const prRecord = db.findPRRecord(repoFullName, prNumber, prAuthor.id);
+
+  // 1. Check exemption list (whitelist or org member)
+  const isWhitelisted = isUserExempted(prAuthor.login);
+  const isOrgMember = !isWhitelisted && !config.cla.skipOrgMemberCheck
+    && await githubService.isOrganizationMember(octokit, owner, prAuthor.login);
+
+  if (isWhitelisted || isOrgMember) {
+    const reason = isWhitelisted ? 'exemption list' : 'organization membership';
+    logger.info('Recheck: user is exempted', { username: prAuthor.login, reason });
+
+    await markPRAsSatisfied(octokit, owner, repo, prNumber, sha, prAuthor.login, prRecord?.comment_id, `CLA not required (${reason})`);
+
+    await octokit.issues.createComment({
+      owner, repo, issue_number: prNumber,
+      body: `:white_check_mark: **CLA recheck passed** — @${prAuthor.login} is exempted from the CLA (${reason}).`,
+    });
+    return;
+  }
+
+  // 2. Check local DB
+  const claRecord = db.findCLAByGitHubUserId(prAuthor.id);
+  if (claRecord && claRecord.status === 'signed') {
+    logger.info('Recheck: CLA already signed in DB', { username: prAuthor.login });
+
+    await markPRAsSatisfied(octokit, owner, repo, prNumber, sha, prAuthor.login, prRecord?.comment_id, 'CLA already signed');
+
+    await octokit.issues.createComment({
+      owner, repo, issue_number: prNumber,
+      body: `:white_check_mark: **CLA recheck passed** — @${prAuthor.login} has already signed the CLA.`,
+    });
+    return;
+  }
+
+  // 3. Check Concord by username
+  const existingConcordCLA = await concordService.findExistingCLA(prAuthor.login);
+  if (existingConcordCLA && existingConcordCLA.status === 'CURRENT_CONTRACT') {
+    logger.info('Recheck: found signed CLA in Concord', { username: prAuthor.login, agreementUid: existingConcordCLA.uid });
+
+    db.createCLARecord({
+      github_username: prAuthor.login,
+      github_user_id: prAuthor.id,
+      github_email: undefined,
+      concord_agreement_uid: existingConcordCLA.uid,
+      status: 'signed',
+      signed_at: existingConcordCLA.signatureDate
+        ? new Date(existingConcordCLA.signatureDate).toISOString()
+        : new Date().toISOString(),
+    });
+
+    await markPRAsSatisfied(octokit, owner, repo, prNumber, sha, prAuthor.login, prRecord?.comment_id, 'CLA already signed');
+
+    await octokit.issues.createComment({
+      owner, repo, issue_number: prNumber,
+      body: `:white_check_mark: **CLA recheck passed** — @${prAuthor.login} has already signed the CLA.`,
+    });
+    return;
+  }
+
+  // Nothing found — still pending
+  await octokit.issues.createComment({
+    owner, repo, issue_number: prNumber,
+    body: `:x: **CLA recheck** — @${prAuthor.login} has not signed the CLA yet and is not on the exemption list.`,
+  });
+}
+
+/**
+ * Mark a PR as CLA-satisfied: set success status, remove pending label,
+ * and update the bot comment if one exists.
+ */
+async function markPRAsSatisfied(
+  octokit: Awaited<ReturnType<typeof githubService.getInstallationOctokit>>,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  sha: string,
+  username: string,
+  commentId: number | undefined,
+  description: string,
+): Promise<void> {
+  await githubService.createCLAStatus(octokit, owner, repo, sha, true, undefined, description);
+  await githubService.removeCLAPendingLabel(octokit, owner, repo, prNumber);
+
+  if (commentId) {
+    try {
+      await githubService.updateCommentCLASigned(octokit, owner, repo, commentId, username);
+    } catch (error) {
+      logger.warn('Could not update CLA comment during recheck', {
+        commentId, error: serializeError(error),
+      });
+    }
+  }
+}
+
+/**
+ * /cla resend — Resend or recreate the CLA signing invitation.
+ */
+async function handleCLAResend(payload: IssueCommentWebhookPayload): Promise<void> {
+  const { comment, issue, repository, installation } = payload;
 
   if (!installation?.id) {
     logger.error('No installation ID in webhook payload');
@@ -392,8 +552,6 @@ async function handleIssueCommentEvent(payload: IssueCommentWebhookPayload): Pro
         userEmail,
         prAuthor.name || prAuthor.login,
         prAuthor.login,
-        repoFullName,
-        prNumber
       );
 
       // Save new CLA record

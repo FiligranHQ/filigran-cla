@@ -123,8 +123,6 @@ export async function createAgreementFromTemplate(
   contributorEmail: string,
   contributorName: string,
   githubUsername: string,
-  repoName: string,
-  prNumber: number
 ): Promise<CreateAgreementResult> {
   const templateId = config.concord.templateId;
   
@@ -132,23 +130,17 @@ export async function createAgreementFromTemplate(
     templateId,
     contributorEmail,
     githubUsername,
-    repoName,
-    prNumber,
     organizationId: ORG_ID,
     apiBase: API_BASE,
   });
 
-  // Step 1: Use the automated template to create a new agreement AND invite signer
-  // Endpoint: POST /organizations/{organizationId}/auto/{templateId}
-  // 
-  // This creates the agreement, invites the contributor, and can send the signing request
   const createResponse = await concordFetch<{ uid: string; status: string }>(
     `/organizations/${ORG_ID}/auto/${templateId}`,
     {
       method: 'POST',
       body: JSON.stringify({
         title: `Filigran CLA - ${githubUsername}`,
-        description: `Contributor License Agreement for GitHub user @${githubUsername} (${repoName}#${prNumber})`,
+        description: `Contributor License Agreement for GitHub user @${githubUsername}`,
         tags: ['CLA', 'GitHub'],
         signatureRequired: 1,
         // Variables to fill in the template (if configured in your template)
