@@ -256,6 +256,24 @@ async function requestSignature(agreementUid: string, signerEmail: string): Prom
 }
 
 /**
+ * Generate a shared link for an agreement so contributors can sign directly
+ */
+export async function createSharedLink(agreementUid: string): Promise<string> {
+  logger.info('Creating shared link for agreement', { agreementUid });
+
+  const response = await concordFetch<{ url: string; permission: string }>(
+    `/organizations/${ORG_ID}/agreements/${agreementUid}/sharedlink`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ permission: 'NO_EDIT' }),
+    }
+  );
+
+  logger.info('Shared link created', { agreementUid, url: response.url });
+  return response.url;
+}
+
+/**
  * Resend the CLA invitation to a contributor
  */
 export async function resendCLAInvitation(
@@ -308,9 +326,11 @@ export async function getSignatureStatus(agreementUid: string): Promise<{
 }
 
 /**
- * Search for existing CLA agreement by GitHub username
+ * Search for an existing CLA agreement in Concord by GitHub username.
+ * Agreements are titled "Filigran CLA - {username}", so a search by
+ * username is the most reliable deduplication key (emails can change).
  */
-export async function findExistingCLAByEmail(email: string): Promise<ConcordAgreement | null> {
+export async function findExistingCLA(githubUsername: string): Promise<ConcordAgreement | null> {
   try {
     const response = await concordFetch<{
       items: Array<{
@@ -321,22 +341,27 @@ export async function findExistingCLAByEmail(email: string): Promise<ConcordAgre
       }>;
       total: number;
     }>(
-      `/user/me/organizations/${ORG_ID}/agreements?statuses=CURRENT_CONTRACT,UNKNOWN_CONTRACT&search=${encodeURIComponent(email)}`
+      `/user/me/organizations/${ORG_ID}/agreements?statuses=CURRENT_CONTRACT,UNKNOWN_CONTRACT&search=${encodeURIComponent(`Filigran CLA - ${githubUsername}`)}`
     );
 
     if (response.items && response.items.length > 0) {
-      const agreement = response.items[0];
-      return {
-        uid: agreement.uuid,
-        title: agreement.title,
-        status: agreement.status,
-        signatureDate: agreement.signatureDate,
-      };
+      // Match on exact title to avoid partial-username collisions
+      const exactMatch = response.items.find(
+        (item) => item.title === `Filigran CLA - ${githubUsername}`
+      );
+      if (exactMatch) {
+        return {
+          uid: exactMatch.uuid,
+          title: exactMatch.title,
+          status: exactMatch.status,
+          signatureDate: exactMatch.signatureDate,
+        };
+      }
     }
 
     return null;
   } catch (error) {
-    logger.warn('Error searching for existing CLA', { email, error });
+    logger.warn('Error searching for existing CLA', { githubUsername, error });
     return null;
   }
 }

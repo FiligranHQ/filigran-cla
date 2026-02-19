@@ -91,6 +91,30 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
     return;
   }
 
+  // Check if there's an existing signed CLA in Concord by GitHub username
+  // (source of truth is the username, not the email which can change)
+  const existingConcordCLA = await concordService.findExistingCLA(username);
+  
+  if (existingConcordCLA && existingConcordCLA.status === 'CURRENT_CONTRACT') {
+    logger.info('Found existing signed CLA in Concord', { username, agreementUid: existingConcordCLA.uid });
+    
+    // Sync back to local database
+    db.createCLARecord({
+      github_username: username,
+      github_user_id: userId,
+      github_email: undefined,
+      concord_agreement_uid: existingConcordCLA.uid,
+      status: 'signed',
+      signed_at: existingConcordCLA.signatureDate 
+        ? new Date(existingConcordCLA.signatureDate).toISOString() 
+        : new Date().toISOString(),
+    });
+
+    await githubService.createCLAStatus(octokit, owner, repo, sha, true, undefined, 'CLA already signed');
+    
+    return;
+  }
+
   // Check if we already have a pending PR record for this user
   let prRecord = db.findPRRecord(repoFullName, prNumber, userId);
 
@@ -128,29 +152,6 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
   }
 
   logger.info('User email determined', { username, userEmail });
-
-  // Check if there's an existing signed CLA in Concord (maybe signed outside this bot)
-  const existingConcordCLA = await concordService.findExistingCLAByEmail(userEmail);
-  
-  if (existingConcordCLA && existingConcordCLA.status === 'CURRENT_CONTRACT') {
-    logger.info('Found existing signed CLA in Concord', { username, agreementUid: existingConcordCLA.uid });
-    
-    // Record in database
-    db.createCLARecord({
-      github_username: username,
-      github_user_id: userId,
-      github_email: userEmail,
-      concord_agreement_uid: existingConcordCLA.uid,
-      status: 'signed',
-      signed_at: existingConcordCLA.signatureDate 
-        ? new Date(existingConcordCLA.signatureDate).toISOString() 
-        : new Date().toISOString(),
-    });
-
-    await githubService.createCLAStatus(octokit, owner, repo, sha, true, undefined, 'CLA already signed');
-    
-    return;
-  }
 
   // Create a new CLA agreement
   let agreementResult;
@@ -195,6 +196,17 @@ Please contact the maintainers for assistance.
     return;
   }
 
+  // Generate a shared signing link so the contributor can sign directly
+  let signingUrl: string | undefined;
+  try {
+    signingUrl = await concordService.createSharedLink(agreementResult.agreementUid);
+  } catch (error) {
+    logger.warn('Could not create shared signing link', {
+      error: serializeError(error),
+      agreementUid: agreementResult.agreementUid,
+    });
+  }
+
   // Save CLA record
   db.createCLARecord({
     github_username: username,
@@ -220,7 +232,8 @@ Please contact the maintainers for assistance.
     owner,
     repo,
     prNumber,
-    username
+    username,
+    signingUrl
   );
 
   // Update PR record with comment ID
@@ -328,11 +341,25 @@ async function handleIssueCommentEvent(payload: IssueCommentWebhookPayload): Pro
           prAuthor.login
         );
 
+        let resendSigningUrl: string | undefined;
+        try {
+          resendSigningUrl = await concordService.createSharedLink(claRecord.concord_agreement_uid);
+        } catch (linkError) {
+          logger.warn('Could not create shared signing link on resend', {
+            error: serializeError(linkError),
+            agreementUid: claRecord.concord_agreement_uid,
+          });
+        }
+
+        const resendBody = resendSigningUrl
+          ? `:email: CLA signing invitation has been resent and a signing link has been generated for **@${prAuthor.login}**.\n\n:link: **[Click here to sign the CLA directly](${resendSigningUrl})**\n\nYou can also check your email (including spam folder) for the signing invitation.`
+          : `:email: CLA signing invitation has been resent to **@${prAuthor.login}**. Please check your email (including spam folder).`;
+
         await octokit.issues.createComment({
           owner,
           repo,
           issue_number: prNumber,
-          body: `:email: CLA signing invitation has been resent to **@${prAuthor.login}**. Please check your email (including spam folder).`,
+          body: resendBody,
         });
         return;
       } catch {
@@ -378,6 +405,17 @@ async function handleIssueCommentEvent(payload: IssueCommentWebhookPayload): Pro
         status: 'pending',
       });
 
+      // Generate a shared signing link
+      let newSigningUrl: string | undefined;
+      try {
+        newSigningUrl = await concordService.createSharedLink(agreementResult.agreementUid);
+      } catch (linkError) {
+        logger.warn('Could not create shared signing link on resend (new agreement)', {
+          error: serializeError(linkError),
+          agreementUid: agreementResult.agreementUid,
+        });
+      }
+
       // Update PR record with new agreement UID
       db.updatePRRecordAgreementUid(repoFullName, prNumber, prAuthor.id, agreementResult.agreementUid);
 
@@ -385,11 +423,15 @@ async function handleIssueCommentEvent(payload: IssueCommentWebhookPayload): Pro
       const pr = await githubService.getPullRequest(octokit, owner, repo, prNumber);
       await githubService.createCLAStatus(octokit, owner, repo, pr.head.sha, false);
 
+      const newAgreementBody = newSigningUrl
+        ? `:arrows_counterclockwise: A new CLA agreement has been created for **@${prAuthor.login}**.\n\n:link: **[Click here to sign the CLA directly](${newSigningUrl})**\n\nYou can also check your email (including spam folder) for the signing invitation.`
+        : `:arrows_counterclockwise: A new CLA agreement has been created and sent to **@${prAuthor.login}**. Please check your email (including spam folder) for the signing invitation.`;
+
       await octokit.issues.createComment({
         owner,
         repo,
         issue_number: prNumber,
-        body: `:arrows_counterclockwise: A new CLA agreement has been created and sent to **@${prAuthor.login}**. Please check your email (including spam folder) for the signing invitation.`,
+        body: newAgreementBody,
       });
 
       logger.info('New CLA agreement created via resend command', {
