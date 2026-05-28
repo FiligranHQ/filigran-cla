@@ -330,24 +330,112 @@ export async function getAppInstallations(): Promise<
 }
 
 /**
- * Check if a user is a member of the GitHub organization
+ * Cache of outside collaborator logins per org. Outside collaborators are
+ * scoped to the org (not the repo), so we only need to fetch this once per
+ * org and refresh after a short TTL. This keeps webhook latency low when
+ * we fall back to the collaborator check below.
+ */
+const OUTSIDE_COLLABORATORS_TTL_MS = 5 * 60 * 1000;
+const outsideCollaboratorsCache = new Map<
+  string,
+  { logins: Set<string>; fetchedAt: number }
+>();
+
+async function getOutsideCollaboratorLogins(
+  octokit: Octokit,
+  org: string
+): Promise<Set<string>> {
+  const cached = outsideCollaboratorsCache.get(org);
+  if (cached && Date.now() - cached.fetchedAt < OUTSIDE_COLLABORATORS_TTL_MS) {
+    return cached.logins;
+  }
+
+  try {
+    const users = await octokit.paginate(octokit.orgs.listOutsideCollaborators, {
+      org,
+      per_page: 100,
+    });
+    const logins = new Set(users.map((u) => u.login.toLowerCase()));
+    outsideCollaboratorsCache.set(org, { logins, fetchedAt: Date.now() });
+    return logins;
+  } catch (error) {
+    logger.warn('Could not list outside collaborators', { org, error });
+    // On failure, return an empty set so we don't accidentally exempt
+    // an outside collaborator — but also don't permanently fail the check.
+    return new Set();
+  }
+}
+
+/**
+ * Check if a user is an "internal" contributor for a given repository.
+ *
+ * Returns true if the user is either:
+ *  - A direct member of the organization (added explicitly or via a regular
+ *    org team), OR
+ *  - A repository collaborator via team membership (including enterprise
+ *    teams granted organization/repository access) and NOT an outside
+ *    collaborator.
+ *
+ * The collaborator fallback is required because users that gain access to
+ * an organization through an enterprise team (the new GitHub Enterprise
+ * "Organization access" tab) do not appear in `GET /orgs/{org}/members` and
+ * therefore fail `checkMembershipForUser`, even though they are effectively
+ * internal contributors.
+ */
+export async function isInternalContributor(
+  octokit: Octokit,
+  org: string,
+  repo: string,
+  username: string
+): Promise<boolean> {
+  // Fast path: direct organization membership (covers explicit members and
+  // members of regular, org-owned teams).
+  try {
+    await octokit.orgs.checkMembershipForUser({ org, username });
+    return true;
+  } catch {
+    // Not a direct member — fall through to the team/enterprise check.
+  }
+
+  // Fallback: the user may have access through a team (including an
+  // enterprise team granted access to the org). Repository collaborator
+  // checks reflect effective access regardless of the path used to grant it.
+  let isCollaborator = false;
+  try {
+    await octokit.repos.checkCollaborator({ owner: org, repo, username });
+    isCollaborator = true;
+  } catch {
+    // Not a collaborator at all — definitely external.
+    return false;
+  }
+
+  if (!isCollaborator) {
+    return false;
+  }
+
+  // Outside collaborators are external contributors invited directly to a
+  // repository; they must still sign the CLA.
+  const outsideCollaborators = await getOutsideCollaboratorLogins(octokit, org);
+  if (outsideCollaborators.has(username.toLowerCase())) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * @deprecated Use {@link isInternalContributor} instead. This thin wrapper
+ * preserves the old name for callers that only need a yes/no answer at the
+ * organization level, but it now also recognises users that reach the org
+ * through an enterprise team (via repository collaborator status).
  */
 export async function isOrganizationMember(
   octokit: Octokit,
   org: string,
+  repo: string,
   username: string
 ): Promise<boolean> {
-  try {
-    await octokit.orgs.checkMembershipForUser({
-      org,
-      username,
-    });
-    // If the call succeeds (204), the user is a member
-    return true;
-  } catch {
-    // 404 or 302 means not a member
-    return false;
-  }
+  return isInternalContributor(octokit, org, repo, username);
 }
 
 /**

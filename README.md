@@ -181,11 +181,17 @@ The CLA signature is **organization-wide**, meaning:
 - The signature covers **all repositories** in the organization
 - Subsequent PRs are automatically recognized
 
-### Exemption (Organization Members)
+### Exemption (Organization & Enterprise Team Members)
 
-The bot automatically exempts members of the GitHub organization that owns the repository. This means:
-- No manual configuration needed for employees
-- Membership is checked dynamically via the GitHub API
+The bot automatically exempts users who are effectively internal contributors on the repository. This includes:
+- **Direct organization members** (users added explicitly or via a regular org-owned team)
+- **Enterprise team members** that have been granted access to the organization or repository through the GitHub Enterprise *Organization access* / *Enterprise access* tabs
+
+Outside collaborators are **not** exempt and must still sign the CLA — outside collaborators are external contributors invited directly to a repository, not employees.
+
+This means:
+- No manual configuration needed for employees, whether they reach the org directly or through an enterprise team
+- Membership is checked dynamically via the GitHub API (org membership first, then repository collaborator status with outside-collaborator exclusion)
 - Can be disabled with `CLA_SKIP_ORG_MEMBER_CHECK=true` for testing
 
 Additional users can be exempted via the `CLA_EXEMPTED_USERS` environment variable (comma-separated, case-insensitive).

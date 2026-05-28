@@ -61,21 +61,25 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload): Promi
 
   const octokit = await githubService.getInstallationOctokit(installation.id);
 
-  // Check if user is exempted from CLA (whitelist or GitHub org member)
+  // Check if user is exempted from CLA (whitelist or internal contributor —
+  // direct org member, classic team member, or member of an enterprise team
+  // with access to the org/repo).
   const isWhitelisted = isUserExempted(username);
-  const isOrgMember = !isWhitelisted && !config.cla.skipOrgMemberCheck && await githubService.isOrganizationMember(octokit, owner, username);
+  const isInternal = !isWhitelisted && !config.cla.skipOrgMemberCheck
+    && await githubService.isInternalContributor(octokit, owner, repo, username);
 
-  if (isWhitelisted || isOrgMember) {
-    logger.info('User is exempted from CLA', { 
-      username, 
-      userId, 
-      reason: isWhitelisted ? 'whitelist' : 'org_member',
+  if (isWhitelisted || isInternal) {
+    logger.info('User is exempted from CLA', {
+      username,
+      userId,
+      reason: isWhitelisted ? 'whitelist' : 'internal_contributor',
       org: owner,
+      repo,
     });
-    
+
     // Set success status — no comment or label needed
     await githubService.createCLAStatus(octokit, owner, repo, sha, true, undefined, 'CLA not required (organization member)');
-    
+
     return;
   }
 
@@ -335,12 +339,14 @@ async function handleCLARecheck(payload: IssueCommentWebhookPayload): Promise<vo
   const sha = pr.head.sha;
   const prRecord = db.findPRRecord(repoFullName, prNumber, prAuthor.id);
 
-  // 1. Check exemption list (whitelist or org member)
+  // 1. Check exemption list (whitelist or internal contributor — direct
+  // org member, classic team member, or member of an enterprise team with
+  // access to the org/repo).
   const isWhitelisted = isUserExempted(prAuthor.login);
-  const isOrgMember = !isWhitelisted && !config.cla.skipOrgMemberCheck
-    && await githubService.isOrganizationMember(octokit, owner, prAuthor.login);
+  const isInternal = !isWhitelisted && !config.cla.skipOrgMemberCheck
+    && await githubService.isInternalContributor(octokit, owner, repo, prAuthor.login);
 
-  if (isWhitelisted || isOrgMember) {
+  if (isWhitelisted || isInternal) {
     const reason = isWhitelisted ? 'exemption list' : 'organization membership';
     logger.info('Recheck: user is exempted', { username: prAuthor.login, reason });
 
