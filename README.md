@@ -7,6 +7,7 @@ A GitHub App bot that manages Contributor License Agreements (CLAs) for open sou
 - **Organization-wide CLA**: Sign once, contribute to all repositories in the organization
 - **Automatic exemption**: GitHub organization members are automatically exempt from CLA signing
 - **Manual whitelist**: Additional users can be exempted via configuration
+- **Enterprise GitHub Apps**: GitHub Apps owned by the bot's GitHub enterprise or by an organization the bot is installed on are exempt from CLA signing
 - **Concord integration**: Agreements are created from an automated template and sent for e-signing
 - **Commit status checks**: Uses GitHub commit statuses (`filigran/cla`) to block or allow merges
 - **Resend command**: Comment `/cla resend` on a PR to resend or recreate the CLA invitation
@@ -152,7 +153,7 @@ npm run dev
 ### When a PR is opened
 
 1. GitHub sends a webhook to `/github/webhook`
-2. Bot checks if the contributor is **exempt** (org member or whitelisted)
+2. Bot checks if the contributor is **exempt** (org member, whitelisted, or GitHub App of the enterprise)
    - If exempt: Sets commit status to success ("CLA not required"), returns
 3. Bot checks if the contributor has **already signed** the CLA (database lookup)
    - If signed: Sets commit status to success ("CLA already signed"), returns
@@ -195,6 +196,19 @@ This means:
 - Can be disabled with `CLA_SKIP_ORG_MEMBER_CHECK=true` for testing
 
 Additional users can be exempted via the `CLA_EXEMPTED_USERS` environment variable (comma-separated, case-insensitive).
+
+### Exemption (Enterprise GitHub Apps)
+
+GitHub Apps are never organization members, so the check above does not apply to them. The bot exempts a pull request whose author is a GitHub App (login `<app-slug>[bot]`) owned by:
+
+- the enterprise that owns the bot, read with `GET /app`;
+- or an organization the bot is installed on, read with `GET /app/installations`.
+
+An app owned by an enterprise cannot be installed outside that enterprise, so these organizations all belong to it. No configuration is needed. An app owned by an organization of the enterprise that the bot is not installed on is not exempted. When the bot is not owned by an enterprise, anyone may have installed it, so no GitHub App is exempted.
+
+The owner of the app is read with `GET /apps/{app_slug}`, which also works for private apps of the enterprise. The bot's owner and installations are cached for one hour: a new installation of the bot is taken into account within an hour, or at the next restart of the bot.
+
+When the bot cannot read the app or its own installations, the app is not exempted and goes through the regular CLA flow. Such an app can still be listed in `CLA_EXEMPTED_USERS`.
 
 ### Resend Command
 

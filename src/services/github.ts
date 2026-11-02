@@ -1,7 +1,7 @@
 import { Octokit } from '@octokit/rest';
 import { createAppAuth } from '@octokit/auth-app';
 import { config } from '../config';
-import { logger } from '../utils/logger';
+import { logger, serializeError } from '../utils/logger';
 import { PullRequest } from '../types';
 
 // Cache for installation Octokit instances
@@ -303,6 +303,19 @@ export async function listOpenPRsByUser(
 }
 
 /**
+ * Get an Octokit instance authenticated as the app itself
+ */
+function getAppOctokit(): Octokit {
+  return new Octokit({
+    authStrategy: createAppAuth,
+    auth: {
+      appId: config.github.appId,
+      privateKey: config.github.getPrivateKey(),
+    },
+  });
+}
+
+/**
  * Get all installations for the app
  */
 export async function getAppInstallations(): Promise<
@@ -311,14 +324,7 @@ export async function getAppInstallations(): Promise<
     account: { login: string; type: string };
   }>
 > {
-  const appOctokit = new Octokit({
-    authStrategy: createAppAuth,
-    auth: {
-      appId: config.github.appId,
-      privateKey: config.github.getPrivateKey(),
-    },
-  });
-
+  const appOctokit = getAppOctokit();
   const { data } = await appOctokit.apps.listInstallations();
   return data.map((installation) => ({
     id: installation.id,
@@ -421,6 +427,97 @@ export async function isInternalContributor(
   }
 
   return true;
+}
+
+/**
+ * Cache of the owners whose GitHub Apps are exempted from CLA. Installations
+ * rarely change, so the cache is only refreshed after a long TTL.
+ */
+const TRUSTED_OWNERS_TTL_MS = 60 * 60 * 1000;
+let trustedOwnersCache:
+  | { owners: TrustedOwners; fetchedAt: number }
+  | undefined;
+
+interface TrustedOwners {
+  enterprise: string | undefined;
+  organizations: Set<string>;
+}
+
+/**
+ * Get the owners whose GitHub Apps are exempted from CLA: the enterprise that
+ * owns the bot, and the organizations the bot is installed on.
+ *
+ * An app owned by an enterprise cannot be installed outside that enterprise,
+ * so the organizations the bot is installed on all belong to it. When the bot
+ * is not owned by an enterprise, anyone may have installed it, so no owner is
+ * trusted.
+ */
+async function getTrustedOwners(): Promise<TrustedOwners> {
+  if (trustedOwnersCache && Date.now() - trustedOwnersCache.fetchedAt < TRUSTED_OWNERS_TTL_MS) {
+    return trustedOwnersCache.owners;
+  }
+
+  const appOctokit = getAppOctokit();
+  const { data: app } = await appOctokit.apps.getAuthenticated();
+  const appOwner = app?.owner as { login?: string; type?: string } | null;
+  const enterprise = appOwner?.type?.toLowerCase() === 'enterprise'
+    ? appOwner.login?.toLowerCase()
+    : undefined;
+
+  const owners: TrustedOwners = { enterprise, organizations: new Set() };
+  if (enterprise) {
+    const installations = await appOctokit.paginate(appOctokit.apps.listInstallations, {
+      per_page: 100,
+    });
+    owners.organizations = new Set(
+      installations
+        .filter((i) => i.target_type === 'Organization' && !!i.account && 'login' in i.account)
+        .map((i) => (i.account as { login: string }).login.toLowerCase())
+    );
+  }
+  trustedOwnersCache = { owners, fetchedAt: Date.now() };
+  return owners;
+}
+
+/**
+ * Check if a user is a GitHub App owned by the enterprise that owns the bot,
+ * or by one of the organizations the bot is installed on.
+ *
+ * GitHub App accounts have the login `<app-slug>[bot]`, which no user account
+ * can take. They are never organization members, so they fail
+ * {@link isInternalContributor} even when the app belongs to Filigran.
+ */
+export async function isEnterpriseApp(
+  octokit: Octokit,
+  username: string
+): Promise<boolean> {
+  const match = /^(.+)\[bot\]$/i.exec(username);
+  if (!match) {
+    return false;
+  }
+
+  try {
+    const { data: app } = await octokit.apps.getBySlug({ app_slug: match[1] });
+    // The owner of an enterprise-owned app has the enterprise slug as login
+    // and the type `enterprise`.
+    const owner = app?.owner as { login?: string; type?: string } | null;
+    const ownerLogin = owner?.login?.toLowerCase();
+    const ownerType = owner?.type?.toLowerCase();
+    if (!ownerLogin) {
+      return false;
+    }
+
+    const trustedOwners = await getTrustedOwners();
+    if (ownerType === 'enterprise') {
+      return ownerLogin === trustedOwners.enterprise;
+    }
+    return ownerType === 'organization' && trustedOwners.organizations.has(ownerLogin);
+  } catch (error) {
+    // The app or the bot's installations could not be read: the app is then
+    // not exempted and goes through the regular CLA flow.
+    logger.warn('Could not check the owner of GitHub App', { username, error: serializeError(error) });
+    return false;
+  }
 }
 
 /**
